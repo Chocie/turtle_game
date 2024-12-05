@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Turtle Battle Game - Player vs AI</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <style>
+            /* Color selector turtles (smallest) */
+            .color-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 4px;
+                max-width: 90px; /* Reduced from 120px */
+            }
+            .color-option {
+                aspect-ratio: 1;
+                cursor: pointer;
+                border: 1px solid transparent;
+                border-radius: 2px;
+                overflow: hidden;
+                width: 24px; /* Fixed small size */
+                height: 24px;
+            }
+            .color-option.selected {
+                border-color: #3B82F6;
+                border-width: 2px;
+            }
+            .color-option img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            /* Game board turtles (largest) */
+            #gameBoard {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 4px;
+                max-width: 300px; /* Adjust overall board size */
+                margin: 0 auto;
+            }
+            .game-cell {
+                aspect-ratio: 1;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                cursor: pointer;
+                overflow: hidden;
+                background-color: #E5E7EB;
+                width: 96px; /* Fixed larger size */
+                height: 96px;
+            }
+            .game-cell img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            /* Player's turtle inventory (medium) */
+            .player-turtles {
+                display: flex;
+                gap: 4px;
+                flex-wrap: wrap;
+            }
+            .turtle-item {
+                width: 48px; /* Fixed medium size */
+                height: 48px;
+                overflow: hidden;
+                cursor: pointer;
+                border: 2px solid transparent;
+            }
+            .turtle-item.selected {
+                border-color: #3B82F6;
+            }
+            .turtle-item img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .ai-thinking {
+                animation: pulse 1.5s infinite;
+            }
+            @keyframes pulse {
+                0% { opacity: 1; }
+                50% { opacity: 0.5; }
+                100% { opacity: 1; }
+            }
+        </style>
+</head>
+<body class="bg-gray-100 min-h-screen py-8">
+    <div class="max-w-2xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold mb-4 text-center">Turtle Battle Game - Player vs AI</h1>
+        
+        <!-- Setup Phase -->
+        <div id="setupPhase" class="mb-6">
+            <div class="p-4 border rounded">
+                <h2 class="font-bold mb-2">Player Setup</h2>
+                <label class="block mb-2">Select Your Color:</label>
+                <div id="colorSelector" class="color-grid mb-4"></div>
+                <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Start Game</button>
+            </div>
+        </div>
+
+        <!-- Game Phase -->
+        <div id="gamePhase" class="hidden">
+            <div id="gameBoard" class="mb-6"></div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Player's Turtles -->
+                <div class="p-4 border rounded">
+                    <h3 class="font-bold mb-2">Your Turtles</h3>
+                    <div id="playerTurtles" class="player-turtles mb-2"></div>
+                    <div>Remaining: <span id="playerCount">6</span></div>
+                </div>
+                
+                <!-- AI's Turtles -->
+                <div class="p-4 border rounded">
+                    <h3 class="font-bold mb-2">AI's Turtles</h3>
+                    <div>Remaining: <span id="aiCount">6</span></div>
+                </div>
+            </div>
+
+            <div id="gameStatus" class="mt-4 text-center font-bold"></div>
+        </div>
+    </div>
+
+    <script>
+        const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'brown'];
+        let playerColor, aiColor;
+        let isPlayerTurn = true;
+        let board = Array(9).fill(null);
+        let playerTurtles = [];
+        let aiTurtles = [];
+        let selectedTurtleIndex = -1;
+        let gameEnded = false;
+
+        function getRandomColor() {
+            const index = Math.floor(Math.random() * colors.length);
+            return colors[index];
+        }
+
+        function getRandomColors(count) {
+            const available = [...colors];
+            const selected = [];
+            for (let i = 0; i < count; i++) {
+                const index = Math.floor(Math.random() * available.length);
+                selected.push(available.splice(index, 1)[0]);
+            }
+            return selected;
+        }
+
+        function initColorSelector() {
+            const selector = document.getElementById('colorSelector');
+            selector.innerHTML = '';
+            colors.forEach(color => {
+                const div = document.createElement('div');
+                div.className = 'color-option';
+                div.innerHTML = `<img src="images/${color}.png" alt="${color}">`;
+                div.onclick = () => {
+                    selector.querySelectorAll('.color-option').forEach(el => 
+                        el.classList.remove('selected'));
+                    div.classList.add('selected');
+                    playerColor = color;
+                };
+                selector.appendChild(div);
+            });
+        }
+
+        async function aiMove() {
+            if (gameEnded) return;
+            
+            document.getElementById('gameStatus').classList.add('ai-thinking');
+            document.getElementById('gameStatus').textContent = 'AI is thinking...';
+            
+            await sleep(1000); // Simulate AI thinking
+
+            // AI strategy
+            // 1. Try to avoid using turtle that matches player's color
+            // 2. Try to avoid making pairs with existing turtles
+            let bestMoveIndex = 0;
+            let bestScore = -Infinity;
+
+            for (let i = 0; i < aiTurtles.length; i++) {
+                const color = aiTurtles[i];
+                let score = 0;
+
+                // Avoid player's color
+                if (color === playerColor) {
+                    score -= 5;
+                }
+
+                // Avoid making pairs
+                let willMakePair = false;
+                for (let j = 0; j < board.length; j++) {
+                    if (board[j] === color) {
+                        willMakePair = true;
+                        break;
+                    }
+                }
+                if (willMakePair) {
+                    score -= 3;
+                }
+
+                // Random factor
+                score += Math.random() * 2;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMoveIndex = i;
+                }
+            }
+
+            // Make the move
+            const color = aiTurtles[bestMoveIndex];
+            const emptyIndex = board.findIndex(cell => cell === null);
+            
+            if (emptyIndex !== -1) {
+                board[emptyIndex] = color;
+                aiTurtles.splice(bestMoveIndex, 1);
+                
+                await sleep(500);
+                updateBoard();
+
+                // Check matches
+                if (color === playerColor) {
+                    board[emptyIndex] = null;
+                    playerTurtles.push(getRandomColor());
+                } else {
+                    // Check for pairs
+                    for (let i = 0; i < board.length; i++) {
+                        if (i !== emptyIndex && board[i] === color) {
+                            board[i] = null;
+                            board[emptyIndex] = null;
+                            playerTurtles.push(getRandomColor());
+                            break;
+                        }
+                    }
+                }
+
+                await sleep(500);
+                updateBoard();
+                updateTurtleDisplays();
+                checkGameEnd();
+                
+                if (!gameEnded) {
+                    isPlayerTurn = true;
+                    updateGameStatus();
+                }
+            }
+
+            document.getElementById('gameStatus').classList.remove('ai-thinking');
+        }
+
+        function updateTurtleDisplays() {
+            const playerDisplay = document.getElementById('playerTurtles');
+            playerDisplay.innerHTML = '';
+            playerTurtles.forEach((color, index) => {
+                const div = document.createElement('div');
+                div.className = `turtle-item ${selectedTurtleIndex === index ? 'selected' : ''}`;
+                div.innerHTML = `<img src="images/${color}.png" alt="${color}">`;
+                div.onclick = () => selectTurtle(index);
+                playerDisplay.appendChild(div);
+            });
+
+            document.getElementById('playerCount').textContent = playerTurtles.length;
+            document.getElementById('aiCount').textContent = aiTurtles.length;
+        }
+
+        async function selectTurtle(index) {
+            if (!isPlayerTurn || gameEnded) return;
+
+            selectedTurtleIndex = index;
+            updateTurtleDisplays();
+            await makePlayerMove();
+        }
+
+        async function makePlayerMove() {
+            if (selectedTurtleIndex === -1) return;
+
+            const emptyIndex = board.findIndex(cell => cell === null);
+            if (emptyIndex === -1) return;
+
+            const color = playerTurtles[selectedTurtleIndex];
+            board[emptyIndex] = color;
+            playerTurtles.splice(selectedTurtleIndex, 1);
+            selectedTurtleIndex = -1;
+
+            await sleep(500);
+            updateBoard();
+
+            // Check matches
+            if (color === aiColor) {
+                board[emptyIndex] = null;
+                aiTurtles.push(getRandomColor());
+            } else {
+                for (let i = 0; i < board.length; i++) {
+                    if (i !== emptyIndex && board[i] === color) {
+                        board[i] = null;
+                        board[emptyIndex] = null;
+                        aiTurtles.push(getRandomColor());
+                        break;
+                    }
+                }
+            }
+
+            await sleep(500);
+            updateBoard();
+            updateTurtleDisplays();
+
+            if (!checkGameEnd()) {
+                isPlayerTurn = false;
+                updateGameStatus();
+                aiMove();
+            }
+        }
+
+        function checkGameEnd() {
+            if (playerTurtles.length === 0) {
+                document.getElementById('gameStatus').textContent = 'Game Over! AI wins! (You ran out of turtles)';
+                gameEnded = true;
+                return true;
+            }
+            if (aiTurtles.length === 0) {
+                document.getElementById('gameStatus').textContent = 'Game Over! You win! (AI ran out of turtles)';
+                gameEnded = true;
+                return true;
+            }
+            if (!board.includes(null)) {
+                const winner = playerTurtles.length > aiTurtles.length ? 'You win' : 'AI wins';
+                document.getElementById('gameStatus').textContent = 
+                    `Game Over! ${winner} with more turtles! (Player: ${playerTurtles.length}, AI: ${aiTurtles.length})`;
+                gameEnded = true;
+                return true;
+            }
+            return false;
+        }
+
+        function updateGameStatus() {
+            if (!gameEnded) {
+                document.getElementById('gameStatus').textContent = 
+                    isPlayerTurn ? 'Your turn' : 'AI\'s turn';
+            }
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function initGameBoard() {
+            const boardDiv = document.getElementById('gameBoard');
+            boardDiv.innerHTML = '';
+            board = Array(9).fill(null);
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'game-cell';
+                boardDiv.appendChild(cell);
+            }
+            updateBoard();
+        }
+
+        function updateBoard() {
+            const cells = document.querySelectorAll('.game-cell');
+            cells.forEach((cell, index) => {
+                if (board[index]) {
+                    cell.innerHTML = `<img src="images/${board[index]}.png" alt="${board[index]}">`;
+                    cell.style.backgroundColor = '';
+                } else {
+                    cell.innerHTML = '';
+                    cell.style.backgroundColor = '#E5E7EB';
+                }
+            });
+        }
+
+        function startGame() {
+            if (!playerColor) {
+                alert('Please select your color first!');
+                return;
+            }
+
+            // Choose AI color (different from player's)
+            do {
+                aiColor = getRandomColor();
+            } while (aiColor === playerColor);
+
+            // Initialize turtles
+            playerTurtles = getRandomColors(6);
+            aiTurtles = getRandomColors(6);
+
+            document.getElementById('setupPhase').classList.add('hidden');
+            document.getElementById('gamePhase').classList.remove('hidden');
+            
+            gameEnded = false;
+            isPlayerTurn = true;
+            
+            updateTurtleDisplays();
+            initGameBoard();
+            updateGameStatus();
+        }
+
+        // Initialize game
+        document.getElementById('startButton').onclick = startGame;
+        initColorSelector();
+    </script>
+</body>
+</html>

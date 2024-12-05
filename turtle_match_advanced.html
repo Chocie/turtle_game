@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Turtle Image Strategy Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <style>
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            max-width: 120px; /* Make color options smaller */
+        }
+        .color-option {
+            aspect-ratio: 1;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .color-option.selected {
+            border-color: #3B82F6;
+            border-width: 2px;
+        }
+        .color-option img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            max-width: 480px; /* Make game board smaller */
+            margin: 0 auto;
+        }
+        .game-cell {
+            aspect-ratio: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            cursor: pointer;
+            overflow: hidden;
+            background-color: #E5E7EB; /* Grey background for empty cells */
+        }
+        .game-cell img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #queueDisplay {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .queue-item {
+            width: 36px;
+            height: 36px;
+            overflow: hidden;
+        }
+        .queue-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen py-8">
+    <div class="max-w-2xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold mb-4">Turtle Image Strategy Game</h1>
+        
+        <div class="grid grid-cols-3 gap-4 mb-4">
+            <div>
+                <label class="block mb-2">Total Turtles (3-30):</label>
+                <input type="number" id="totalTurtles" min="3" max="30" value="3" 
+                       class="border rounded px-2 py-1">
+            </div>
+            
+            <div>
+                <label class="block mb-2">Select Image:</label>
+                <div id="colorSelector" class="color-grid"></div>
+            </div>
+            
+            <div class="flex items-end">
+                <button id="startButton" 
+                        class="bg-blue-1000 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    Start Game
+                </button>
+            </div>
+        </div>
+        
+        <div id="gameBoard" class="mb-4"></div>
+        
+        <div id="gameStatus" class="mt-4 font-bold text-center">
+            Click Start Game to begin
+        </div>
+
+        <div id="totalUsed" class="mt-2 text-center">
+            Total turtles used: 0
+        </div>
+        
+        <div id="turtleQueue" class="mt-4">
+            <h3 class="font-bold">Turtle Queue:</h3>
+            <div id="queueDisplay" class="mt-2"></div>
+        </div>
+    </div>
+
+    <script>
+        const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'brown'];
+        let selectedColor = colors[0];
+        let gameStarted = false;
+        let queue = [];
+        let board = Array(9).fill(null);
+        let totalTurtlesUsed = 0;
+        let isProcessing = false;
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function getRandomColor() {
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        function updateTotalUsed() {
+            document.getElementById('totalUsed').textContent = `Total turtles used: ${totalTurtlesUsed}`;
+        }
+
+        function addToQueue(count, position = 'end') {
+            for (let i = 0; i < count; i++) {
+                const newTurtle = getRandomColor();
+                if (position === 'start') {
+                    queue.unshift(newTurtle);
+                } else {
+                    queue.push(newTurtle);
+                }
+            }
+            displayQueue();
+        }
+
+        function displayQueue() {
+            const queueDisplay = document.getElementById('queueDisplay');
+            queueDisplay.innerHTML = '';
+            queue.forEach(color => {
+                const div = document.createElement('div');
+                div.className = 'queue-item';
+                div.innerHTML = `<img src="images/${color}.png" alt="${color}">`;
+                queueDisplay.appendChild(div);
+            });
+        }
+
+        function updateBoard() {
+            const cells = document.querySelectorAll('.game-cell');
+            cells.forEach((cell, index) => {
+                if (board[index]) {
+                    cell.innerHTML = `<img src="images/${board[index]}.png" alt="${board[index]}">`;
+                    cell.style.backgroundColor = ''; // Remove grey background when filled
+                } else {
+                    cell.innerHTML = ''; // Empty cell
+                    cell.style.backgroundColor = '#E5E7EB'; // Grey background for empty cells
+                }
+            });
+        }
+
+        async function checkAllDifferent() {
+            let changed = false;
+            if (!board.includes(null)) {
+                const usedColors = new Set(board);
+                if (usedColors.size === 9) {
+                    // Clear entire board at once
+                    board = Array(9).fill(null);
+                    addToQueue(8);
+                    changed = true;
+                    await sleep(1000);
+                    updateBoard();
+                }
+            }
+            return changed;
+        }
+
+        async function checkThreeInRow() {
+            let changed = false;
+            const lines = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+                [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+                [0, 4, 8], [2, 4, 6] // diagonals
+            ];
+
+            let cellsToRemove = new Set();
+
+            // First identify all three-in-a-row matches
+            for (let line of lines) {
+                const [a, b, c] = line;
+                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                    cellsToRemove.add(a);
+                    cellsToRemove.add(b);
+                    cellsToRemove.add(c);
+                    changed = true;
+                }
+            }
+
+            // Then remove all matched cells at once
+            if (changed) {
+                cellsToRemove.forEach(index => {
+                    board[index] = null;
+                });
+                addToQueue(5);
+                await sleep(1000);
+                updateBoard();
+            }
+
+            return changed;
+        }
+
+        async function checkPairs() {
+            let changed = false;
+            let cellsToRemove = new Set();
+
+            // First identify all pairs
+            for (let i = 0; i < board.length; i++) {
+                for (let j = i + 1; j < board.length; j++) {
+                    if (board[i] && board[i] === board[j] && 
+                        !cellsToRemove.has(i) && !cellsToRemove.has(j)) {
+                        cellsToRemove.add(i);
+                        cellsToRemove.add(j);
+                        changed = true;
+                    }
+                }
+            }
+
+            // Then remove all pairs at once
+            if (changed) {
+                cellsToRemove.forEach(index => {
+                    board[index] = null;
+                });
+                addToQueue(cellsToRemove.size / 2); // Add one new turtle per pair
+                await sleep(1000);
+                updateBoard();
+            }
+
+            return changed;
+        }
+
+        async function fillAllEmptySpaces() {
+            let filled = false;
+            // First, check if we have any empty spaces
+            const emptySpaces = board.some(cell => cell === null);
+            
+            // If there are empty spaces and we have turtles in queue, fill them all
+            if (emptySpaces && queue.length > 0) {
+                for (let i = 0; i < board.length; i++) {
+                    if (board[i] === null && queue.length > 0) {
+                        const turtle = queue.shift();
+                        board[i] = turtle;
+                        totalTurtlesUsed++;
+                        
+                        if (turtle === selectedColor) {
+                            addToQueue(1, 'start');
+                        }
+                        filled = true;
+                    }
+                }
+                
+                if (filled) {
+                    updateTotalUsed();
+                    await sleep(1000);
+                    updateBoard();
+                    displayQueue();
+                }
+            }
+            return filled;
+        }
+
+        async function checkEntireBoard() {
+            let changed = false;
+            
+            // Check all different first
+            if (await checkAllDifferent()) {
+                changed = true;
+                return changed; // Return immediately as board is cleared
+            }
+            
+            // Then check three-in-a-row
+            if (await checkThreeInRow()) {
+                changed = true;
+            }
+            
+            // Finally check pairs
+            if (await checkPairs()) {
+                changed = true;
+            }
+            
+            return changed;
+        }
+
+        async function gameLoop() {
+            if (isProcessing) return;
+            isProcessing = true;
+            
+            while (queue.length > 0 || board.includes(null)) {
+                // First, fill ALL empty spaces until board is full or queue is empty
+                while (board.includes(null) && queue.length > 0) {
+                    await fillAllEmptySpaces();
+                }
+                
+                // Then check the board for matches
+                if (await checkEntireBoard()) {
+                    // If matches were found and cleared, continue the loop
+                    continue;
+                }
+                
+                // If no matches and queue is empty, game is over
+                if (queue.length === 0) {
+                    document.getElementById('gameStatus').textContent = 'Game Over!';
+                    break;
+                }
+            }
+            
+            isProcessing = false;
+        }
+
+        function initColorSelector() {
+            const selector = document.getElementById('colorSelector');
+            selector.innerHTML = '';
+            colors.forEach(color => {
+                const div = document.createElement('div');
+                div.className = `color-option ${color === selectedColor ? 'selected' : ''}`;
+                div.innerHTML = `<img src="images/${color}.png" alt="${color}">`;
+                div.onclick = () => {
+                    document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+                    div.classList.add('selected');
+                    selectedColor = color;
+                };
+                selector.appendChild(div);
+            });
+        }
+
+        function initGameBoard() {
+            const boardDiv = document.getElementById('gameBoard');
+            boardDiv.innerHTML = '';
+            board = Array(9).fill(null);
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'game-cell';
+                boardDiv.appendChild(cell);
+            }
+            updateBoard();
+        }
+
+        document.getElementById('startButton').onclick = () => {
+            if (isProcessing) return;
+            
+            gameStarted = true;
+            totalTurtlesUsed = 0;
+            updateTotalUsed();
+            // document.getElementById('gameStatus').textContent = 'Game in progress...';
+            
+            const totalTurtles = parseInt(document.getElementById('totalTurtles').value);
+            queue = [];
+            addToQueue(totalTurtles);
+            
+            initGameBoard();
+            gameLoop();
+        };
+
+        initColorSelector();
+    </script>
+</body>
+</html>
